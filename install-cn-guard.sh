@@ -62,9 +62,11 @@ ROLLBACK_MIN=15
 EOF
     chmod 600 "$CONF"
   fi
+  [[ -f "$0" ]] || die "run this installer from a downloaded file, not via 'curl | bash'; save it as install-cn-guard.sh first"
   install -m 700 "$0" "$BIN"
   log "installed command: $BIN"
-  log "review $CONF before activation; no firewall rules changed by install"
+  log "configuration: $CONF"
+  log "no firewall rules changed by the install-only operation"
 }
 fetch_lists(){
   need curl; need python3
@@ -260,7 +262,8 @@ status(){
   cat "$STATE/updated" 2>/dev/null || true
 }
 case "${1:-install}" in
-  install) install_command ;;
+  install) install_command; "$BIN" apply ;;
+  --install-only) install_command ;;
   backup) load_conf; backup ;;
   fetch) load_conf; fetch_lists ;;
   build) load_conf; build_rules ;;
