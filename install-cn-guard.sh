@@ -163,6 +163,9 @@ load_rules(){
 apply(){
   need_root; load_conf
   [[ -n "$ADMIN_IPS" ]] || die "ADMIN_IPS is empty in $CONF"
+  if nft list table inet cn_guard >/dev/null 2>&1; then
+    die "table inet cn_guard already exists; inspect it first, then use 'cn-guard update' or 'cn-guard rollback' as appropriate"
+  fi
   backup
   fetch_lists
   build_rules
@@ -179,7 +182,6 @@ confirm(){
   need_root; load_conf
   nft list table inet cn_guard >/dev/null 2>&1 || die "cn_guard table not active"
   [[ -s "$RULES" ]] || die "rules file missing"
-  systemctl stop "$ROLLBACK_UNIT.timer" "$ROLLBACK_UNIT.service" 2>/dev/null || true
   cat > /etc/systemd/system/cn-guard.service <<'UNIT'
 [Unit]
 Description=China mainland source IP guard (dedicated nftables table)
@@ -220,8 +222,9 @@ Persistent=true
 WantedBy=timers.target
 UNIT
   systemctl daemon-reload
-  systemctl enable cn-guard.service
+  systemctl enable --now cn-guard.service || die "could not start persistent cn-guard service; leave rollback timer active and investigate"
   systemctl enable --now cn-guard-update.timer
+  systemctl stop "$ROLLBACK_UNIT.timer" "$ROLLBACK_UNIT.service" 2>/dev/null || true
   log "persistence and daily update timer enabled"
 }
 update_lists(){
