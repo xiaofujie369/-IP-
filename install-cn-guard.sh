@@ -229,25 +229,28 @@ UNIT
 }
 update_lists(){
   need_root; load_conf
-  # Keep the active table untouched if download/validation fails.
-  local old4="" old6=""
-  [[ ! -f "$STATE/cn4.zone" ]] || old4=$(mktemp)
-  [[ ! -f "$STATE/cn6.zone" ]] || old6=$(mktemp)
-  [[ -z "$old4" ]] || cp "$STATE/cn4.zone" "$old4"
-  [[ -z "$old6" ]] || cp "$STATE/cn6.zone" "$old6"
-  if ! fetch_lists; then
-    [[ -z "$old4" ]] || cp "$old4" "$STATE/cn4.zone"
-    [[ -z "$old6" ]] || cp "$old6" "$STATE/cn6.zone"
-    rm -f "$old4" "$old6"
-    die "update download/validation failed; previous lists restored"
+  # Preserve the prior cache and generated rules so a failed update can be rolled back.
+  local old4="" old6="" oldrules="" had4=0 had6=0 hadrules=0
+  if [[ -f "$STATE/cn4.zone" ]]; then had4=1; old4=$(mktemp); cp -p "$STATE/cn4.zone" "$old4"; fi
+  if [[ -f "$STATE/cn6.zone" ]]; then had6=1; old6=$(mktemp); cp -p "$STATE/cn6.zone" "$old6"; fi
+  if [[ -f "$RULES" ]]; then hadrules=1; oldrules=$(mktemp); cp -p "$RULES" "$oldrules"; fi
+
+  restore_cache(){
+    if [[ $had4 -eq 1 ]]; then cp -p "$old4" "$STATE/cn4.zone"; else rm -f "$STATE/cn4.zone"; fi
+    if [[ $had6 -eq 1 ]]; then cp -p "$old6" "$STATE/cn6.zone"; else rm -f "$STATE/cn6.zone"; fi
+    if [[ $hadrules -eq 1 ]]; then cp -p "$oldrules" "$RULES"; else rm -f "$RULES"; fi
+    rm -f "$old4" "$old6" "$oldrules"
+  }
+
+  if ! ( fetch_lists && build_rules ); then
+    restore_cache
+    die "update download/validation/build failed; previous cache and rules file restored; active firewall table unchanged"
   fi
-  if ! build_rules || ! load_rules; then
-    [[ -z "$old4" ]] || cp "$old4" "$STATE/cn4.zone"
-    [[ -z "$old6" ]] || cp "$old6" "$STATE/cn6.zone"
-    rm -f "$old4" "$old6"
-    die "update failed; cached lists restored"
+  if ! ( load_rules ); then
+    restore_cache
+    die "update application failed; previous cache and rules file restored; nftables transaction should preserve active table"
   fi
-  rm -f "$old4" "$old6"
+  rm -f "$old4" "$old6" "$oldrules"
   log "IP database update applied"
 }
 rollback(){
